@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from logic import process_publications
+from logic import run_all
 
 st.set_page_config(layout="wide")
 st.title("Publication Metrics Generator")
