@@ -8,7 +8,7 @@ st.title("Publication Metrics Generator")
 
 df_1_file = st.file_uploader("Upload Publication Report (df_1)", type="csv")
 df_2_file = st.file_uploader("Upload Author ID Report (df_2)", type="csv")
-api_key = st.text_input("Enter Scopus API Key", type="password")
+
 
 col1, col2 = st.columns(2)
 with col1:
@@ -24,7 +24,7 @@ if st.button("Run Analysis"):
         df_2 = pd.read_csv(df_2_file)
 
         with st.spinner("Processing..."):
-            df_8, df_11 = run_all(df_1, df_2, api_key, start_date, end_date)
+            df_8, df_11 = run_all(df_1, df_2, start_date, end_date)
 
         st.success("Done!")
         st.download_button("Download df_8 (Authorship Summary)", df_8.to_csv(index=False), "df_8.csv")

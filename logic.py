@@ -80,15 +80,22 @@ def run_all(df_1, df_2, api_key, start_date, end_date):
     def flag_author_position(claimed_ids, paper_author_ids):
         if pd.isna(claimed_ids) or pd.isna(paper_author_ids):
             return pd.Series([False, False, False])
+        
         claimed_set = set(claimed_ids.split(';'))
         paper_list = [a.strip() for a in paper_author_ids.split(';') if a.strip()]
+        
+        if not paper_list:
+            return pd.Series([False, False, False])  # Prevent IndexError
+
         if len(paper_list) == 1:
             only_author = paper_list[0]
             first = only_author in claimed_set
             return pd.Series([first, False, False])
+        
         first = paper_list[0] in claimed_set
         last = paper_list[-1] in claimed_set
         middle = any(a in claimed_set for a in paper_list[1:-1])
+        
         return pd.Series([first, last, middle])
 
     valid_pub_mask = (
