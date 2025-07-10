@@ -7,7 +7,9 @@ import time
 import streamlit as st
 SCOPUS_API_KEY = st.secrets["SCOPUS_API_KEY"]
 
-def run_all(df_1, df_2, api_key, start_date, end_date):
+def run_all(df_1, df_2, start_date, end_date):
+    import streamlit as st
+    api_key = st.secrets["SCOPUS_API_KEY"]
     ### Step 1: Clean PMIDs
     df_1['PubMed_clean'] = df_1['PubMed'].astype('Int64').astype('string')
     df_1['MaxPR_PubMed_clean'] = df_1['MaxPR_PubMed'].astype(str).str.extract(r'(\\d+)', expand=False)
