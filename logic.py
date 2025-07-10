@@ -73,6 +73,24 @@ def run_all(df_1, df_2, start_date, end_date):
 
     df_3 = pd.DataFrame(results)
 
+    # Safely convert year/month/day to a full date
+
+    def combine_date(year, month, day):
+        try:
+            # Fill in missing or empty values with '01'
+            month = '01' if not month or pd.isna(month) else str(month).zfill(2)
+            day = '01' if not day or pd.isna(day) else str(day).zfill(2)
+            return datetime.strptime(f"{month}/{day}/{year}", "%m/%d/%Y").date()
+        except:
+            return pd.NaT  # Invalid or incomplete date
+
+    # Apply the function to create the 'Publication Date' column
+    df_3['Publication Date'] = df_3.apply(
+        lambda row: combine_date(str(row['Publication Year']), row['Publication Month'], row['Publication Day']),
+        axis=1
+    )
+
+    
     # Combine to master dataframe
     df_4 = df_2.merge(df_1, left_on='Username', right_on='NetID', how='left')
     df_5 = df_4.merge(df_3, left_on='Scopus', right_on='Scopus ID', how='left')
