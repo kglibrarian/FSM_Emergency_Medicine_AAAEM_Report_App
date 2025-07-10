@@ -4,6 +4,8 @@ import re
 import requests
 from datetime import datetime
 import time
+import streamlit as st
+SCOPUS_API_KEY = st.secrets["SCOPUS_API_KEY"]
 
 def run_all(df_1, df_2, api_key, start_date, end_date):
     ### Step 1: Clean PMIDs
