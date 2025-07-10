@@ -24,7 +24,7 @@ if st.button("Run Analysis"):
         df_2 = pd.read_csv(df_2_file)
 
         with st.spinner("Processing..."):
-            df_8, df_11 = process_publications(df_1, df_2, api_key, start_date, end_date)
+            df_8, df_11 = run_all(df_1, df_2, api_key, start_date, end_date)
 
         st.success("Done!")
         st.download_button("Download df_8 (Authorship Summary)", df_8.to_csv(index=False), "df_8.csv")
