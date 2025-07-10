@@ -138,13 +138,7 @@ def run_all(df_1, df_2, start_date, end_date):
 
 
     #df_6['Publication Date'] = pd.to_datetime(df_6['Publication Date'], errors='coerce')
-
-    if 'Publication Date' in df_6.columns:
-        df_6['Publication Date'] = pd.to_datetime(df_6['Publication Date'], errors='coerce')
-    else:
-        st.error("❌ 'Publication Date' column not found in df_6. Check input files or API output.")
-        return pd.DataFrame(), pd.DataFrame()
-    
+        
     df_7 = df_6[
         (df_6['Is Peer-Reviewed']) &
         (df_6['Publication Date'] >= start_date) &
