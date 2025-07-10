@@ -17,7 +17,7 @@ with col2:
     end_date = st.date_input("End Date", datetime.date(2025, 6, 30))
 
 if st.button("Run Analysis"):
-    if not (df_1_file and df_2_file and api_key):
+    if not (df_1_file and df_2_file):
         st.error("Please upload both files and provide an API key.")
     else:
         df_1 = pd.read_csv(df_1_file)
