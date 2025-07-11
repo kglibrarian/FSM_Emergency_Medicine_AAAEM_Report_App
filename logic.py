@@ -1,4 +1,5 @@
 import csv
+import io
 import requests
 from datetime import datetime
 import time
@@ -9,7 +10,7 @@ SCOPUS_API_KEY = st.secrets["SCOPUS_API_KEY"]
 
 def parse_csv_to_dicts(file_obj):
     file_obj.seek(0)
-    return list(csv.DictReader(file_obj))
+    return list(csv.DictReader(io.TextIOWrapper(file_obj, encoding="utf-8")))
 
 def extract_clean_pmids(author_records):
     for row in author_records:
