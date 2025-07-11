@@ -35,7 +35,15 @@ if st.button("Run Analysis"):
     else:
         with st.spinner("⏳ Processing..."):
             try:
-                df_8_list, df_11_list = run_all(df_1_file, df_2_file, start_date, end_date)
+               
+
+                df_8_list, df_11_list = run_all(
+                    io.TextIOWrapper(df_1_file, encoding="utf-8"),
+                    io.TextIOWrapper(df_2_file, encoding="utf-8"),
+                    start_date,
+                    end_date
+                )
+
                 st.success("✅ Analysis complete!")
 
                 # Convert results to CSV
