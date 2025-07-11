@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from logic import PublicationAnalyzer
+from debug_logic import PublicationAnalyzer  # Using debug version
 
 # Configure Streamlit page
 st.set_page_config(
