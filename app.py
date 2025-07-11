@@ -1,65 +1,167 @@
 import streamlit as st
-import datetime
-from logic import run_all
-import csv
-import io
+import pandas as pd
+from datetime import datetime
+from logic import PublicationAnalyzer
 
-st.set_page_config(layout="wide")
-st.title("Publication Metrics Generator (Pythonic)")
+# Configure Streamlit page
+st.set_page_config(
+    page_title="Emergency Medicine Publication Analysis",
+    page_icon="📚",
+    layout="wide"
+)
 
-# File uploaders
-df_1_file = st.file_uploader("Upload Publication Report (df_1)", type="csv")
-df_2_file = st.file_uploader("Upload Author ID Report (df_2)", type="csv")
+st.title("📚 Emergency Medicine Publication Analysis")
+st.markdown("Upload your data files and configure analysis parameters to generate AAAEM reports.")
 
-# Date inputs
+# Configuration section
+st.header("🔧 Configuration")
+
+# Get API key from secrets
+try:
+    scopus_api_key = st.secrets["SCOPUS_API_KEY"]
+    st.success("✅ Scopus API key loaded from secrets")
+except KeyError:
+    st.error("❌ Scopus API key not found in secrets. Please add SCOPUS_API_KEY to your Streamlit secrets.")
+    scopus_api_key = None
+
+# Date range selector
 col1, col2 = st.columns(2)
 with col1:
-    start_date = st.date_input("Start Date", datetime.date(2024, 7, 1))
+    start_date = st.date_input(
+        "Publication Start Date",
+        value=datetime(2024, 7, 1),
+        help="Start date for publication analysis period"
+    )
 with col2:
-    end_date = st.date_input("End Date", datetime.date(2025, 6, 30))
+    end_date = st.date_input(
+        "Publication End Date", 
+        value=datetime(2025, 6, 30),
+        help="End date for publication analysis period"
+    )
 
-# Helper to convert list of dicts to CSV string
-def dicts_to_csv(dict_list):
-    if not dict_list:
-        return ""
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=dict_list[0].keys())
-    writer.writeheader()
-    writer.writerows(dict_list)
-    return output.getvalue()
+# File upload section
+st.header("📁 File Upload")
 
-# Run logic when button is clicked
-if st.button("Run Analysis"):
-    if not (df_1_file and df_2_file):
-        st.error("❌ Please upload both files.")
-    else:
-        with st.spinner("⏳ Processing..."):
-            try:
-               
+col1, col2 = st.columns(2)
 
-                df_8_list, df_11_list = run_all(
-                    io.TextIOWrapper(df_1_file, encoding="utf-8"),
-                    io.TextIOWrapper(df_2_file, encoding="utf-8"),
-                    start_date,
-                    end_date
-                )
+with col1:
+    st.subheader("Publication Report")
+    uploaded_file_1 = st.file_uploader(
+        "Upload Elements Publication Report (CSV)",
+        type=['csv'],
+        help="Upload the Emergency Medicine Elements Publication Report CSV file"
+    )
 
-                st.success("✅ Analysis complete!")
+with col2:
+    st.subheader("Author ID Report")
+    uploaded_file_2 = st.file_uploader(
+        "Upload Elements Author ID Report (CSV)",
+        type=['csv'],
+        help="Upload the Emergency Medicine Elements Author ID Report CSV file"
+    )
 
-                # Convert results to CSV
-                df_8_csv = dicts_to_csv(df_8_list)
-                df_11_csv = dicts_to_csv(df_11_list)
+# Main app logic
+if uploaded_file_1 is not None and uploaded_file_2 is not None and scopus_api_key:
+    try:
+        # Load data
+        df1 = pd.read_csv(uploaded_file_1, encoding='utf-8')
+        df2 = pd.read_csv(uploaded_file_2, encoding='utf-8')
+        
+        st.success(f"✅ Files loaded successfully!")
+        st.write(f"📊 Publication Report: {df1.shape[0]} rows, {df1.shape[1]} columns")
+        st.write(f"👥 Author ID Report: {df2.shape[0]} rows, {df2.shape[1]} columns")
+        
+        # Process data button
+        if st.button("🚀 Process Data", type="primary"):
+            
+            # Create status container for updates
+            status_container = st.empty()
+            
+            def update_status(message):
+                status_container.write(message)
+            
+            with st.spinner("Processing data... This may take several minutes."):
+                analyzer = PublicationAnalyzer(scopus_api_key)
+                
+                try:
+                    df_faculty_summary, df_pub_summary = analyzer.process_data(
+                        df1, df2, start_date, end_date, status_callback=update_status
+                    )
+                    
+                    if df_faculty_summary is not None and df_pub_summary is not None:
+                        status_container.success("✅ Analysis completed successfully!")
+                        
+                        # Display results
+                        st.header("📊 Results")
+                        
+                        # Faculty Summary (df_8 equivalent)
+                        st.subheader("👥 Faculty Publication Summary")
+                        st.dataframe(df_faculty_summary, use_container_width=True)
+                        
+                        # Publication Assignment Summary (df_11 equivalent)
+                        st.subheader("📚 Publication Assignment Summary")
+                        st.dataframe(df_pub_summary, use_container_width=True)
+                        
+                        # Download buttons
+                        st.header("⬇️ Download Results")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            faculty_csv = df_faculty_summary.to_csv(index=False)
+                            st.download_button(
+                                label="📋 Download Faculty Summary",
+                                data=faculty_csv,
+                                file_name=f"faculty_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                        
+                        with col2:
+                            pub_csv = df_pub_summary.to_csv(index=False)
+                            st.download_button(
+                                label="📊 Download Publication Summary",
+                                data=pub_csv,
+                                file_name=f"publication_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                        
+                        # Summary statistics
+                        st.header("📈 Summary Statistics")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            total_faculty = len(df_faculty_summary)
+                            st.metric("Total Faculty", total_faculty)
+                        
+                        with col2:
+                            total_pubs = df_pub_summary['Total Publications'].sum()
+                            st.metric("Total Publications", total_pubs)
+                        
+                        with col3:
+                            faculty_with_pubs = (df_pub_summary['Total Publications'] > 0).sum()
+                            st.metric("Faculty with Publications", faculty_with_pubs)
+                        
+                        with col4:
+                            avg_pubs = df_pub_summary['Total Publications'].mean()
+                            st.metric("Avg Publications per Faculty", f"{avg_pubs:.1f}")
+                    
+                    else:
+                        st.error("❌ Analysis failed. Please check your data and try again.")
+                        
+                except Exception as e:
+                    st.error(f"❌ An error occurred during processing: {str(e)}")
+                    st.write("Please check your API key and data files.")
+    
+    except Exception as e:
+        st.error(f"❌ Error loading files: {str(e)}")
 
-                # Download buttons
-                st.download_button("Download df_8 (Authorship Summary)", df_8_csv, file_name="df_8.csv", mime="text/csv")
-                st.download_button("Download df_11 (Total Publications)", df_11_csv, file_name="df_11.csv", mime="text/csv")
+elif uploaded_file_1 is None or uploaded_file_2 is None:
+    st.info("📁 Please upload both CSV files to proceed.")
+    
+elif not scopus_api_key:
+    st.info("🔑 Scopus API key not available. Please configure it in Streamlit secrets.")
 
-                # Show preview
-                st.subheader("Preview of df_8")
-                st.dataframe(df_8_list)
-
-                st.subheader("Preview of df_11")
-                st.dataframe(df_11_list)
-
-            except Exception as e:
-                st.error(f"❌ An error occurred: {e}")
+# Footer
+st.markdown("---")
+st.markdown("*Emergency Medicine Publication Analysis Tool - Built with Streamlit*")
