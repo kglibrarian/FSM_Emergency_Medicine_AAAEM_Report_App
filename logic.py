@@ -134,15 +134,24 @@ class PublicationAnalyzer:
         if pd.isna(claimed_ids) or pd.isna(paper_author_ids):
             return pd.Series([False, False, False])
         
-        claimed_set = set(str(claimed_ids).split(';'))
+        # Handle multiple claimed IDs separated by semicolons
+        claimed_list = [id.strip() for id in str(claimed_ids).split(';') if id.strip()]
+        claimed_set = set(claimed_list)
+        
+        # Handle paper author IDs separated by semicolons
         paper_list = [a.strip() for a in str(paper_author_ids).split(';') if a.strip()]
         
+        if not paper_list or not claimed_set:
+            return pd.Series([False, False, False])
+        
+        # Single author case
         if len(paper_list) == 1:
             first = paper_list[0] in claimed_set
             return pd.Series([first, False, False])
         
-        first = paper_list[0] in claimed_set if paper_list else False
-        last = paper_list[-1] in claimed_set if paper_list else False
+        # Multiple authors case
+        first = paper_list[0] in claimed_set
+        last = paper_list[-1] in claimed_set
         middle = any(a in claimed_set for a in paper_list[1:-1]) if len(paper_list) > 2 else False
         
         return pd.Series([first, last, middle])
@@ -239,17 +248,20 @@ class PublicationAnalyzer:
             df_merged['Title'].notna()
         )
         
+        # Initialize all flags to False
         df_merged['Is_First_Author'] = False
         df_merged['Is_Last_Author'] = False
         df_merged['Is_Middle_Author'] = False
         
-        df_merged.loc[valid_pub_mask, ['Is_First_Author', 'Is_Last_Author', 'Is_Middle_Author']] = \
-            df_merged[valid_pub_mask].apply(
-                lambda row: self.flag_author_position(
-                    row['ClaimedScopus'], 
-                    row['Author IDs']
-                ), axis=1
+        # Apply author position flagging only to valid publications
+        for idx, row in df_merged[valid_pub_mask].iterrows():
+            first, last, middle = self.flag_author_position(
+                row['ClaimedScopus'], 
+                row['Author IDs']
             )
+            df_merged.at[idx, 'Is_First_Author'] = first
+            df_merged.at[idx, 'Is_Last_Author'] = last
+            df_merged.at[idx, 'Is_Middle_Author'] = middle
         
         # Step 6: Flag peer-reviewed publications
         update_status("📖 Flagging peer-reviewed publications...")
