@@ -74,6 +74,11 @@ if uploaded_file_1 is not None and uploaded_file_2 is not None and scopus_api_ke
         # Process data button
         if st.button("🚀 Process Data", type="primary"):
             
+            # Clear any previous results
+            for key in ['df_faculty_summary', 'df_pub_summary', 'analysis_complete']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
             # Create status container for updates
             status_container = st.empty()
             
@@ -88,10 +93,6 @@ if uploaded_file_1 is not None and uploaded_file_2 is not None and scopus_api_ke
                         df1, df2, start_date, end_date, status_callback=update_status
                     )
                     
-                        # Store results in session state to persist downloads
-                        st.session_state.df_faculty_summary = df_faculty_summary
-                        st.session_state.df_pub_summary = df_pub_summary
-                        st.session_state.analysis_complete = True
                     if df_faculty_summary is not None and df_pub_summary is not None:
                         # Store results in session state to persist downloads
                         st.session_state.df_faculty_summary = df_faculty_summary
@@ -100,12 +101,26 @@ if uploaded_file_1 is not None and uploaded_file_2 is not None and scopus_api_ke
                         
                         status_container.success("✅ Analysis completed successfully!")
                         
+                        # Force a rerun to show results
+                        st.rerun()
+                        
                     else:
                         st.error("❌ Analysis failed. Please check your data and try again.")
                         
                 except Exception as e:
                     st.error(f"❌ An error occurred during processing: {str(e)}")
                     st.write("Please check your API key and data files.")
+                    import traceback
+                    st.code(traceback.format_exc())
+    
+    except Exception as e:
+        st.error(f"❌ Error loading files: {str(e)}")
+
+elif uploaded_file_1 is None or uploaded_file_2 is None:
+    st.info("📁 Please upload both CSV files to proceed.")
+    
+elif not scopus_api_key:
+    st.info("🔑 Scopus API key not available. Please configure it in Streamlit secrets.")
 
 # Display results if analysis is complete (this will persist across reruns)
 if hasattr(st.session_state, 'analysis_complete') and st.session_state.analysis_complete:
@@ -175,15 +190,6 @@ if hasattr(st.session_state, 'analysis_complete') and st.session_state.analysis_
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
-    
-    except Exception as e:
-        st.error(f"❌ Error loading files: {str(e)}")
-
-elif uploaded_file_1 is None or uploaded_file_2 is None:
-    st.info("📁 Please upload both CSV files to proceed.")
-    
-elif not scopus_api_key:
-    st.info("🔑 Scopus API key not available. Please configure it in Streamlit secrets.")
 
 # Footer
 st.markdown("---")
