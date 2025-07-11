@@ -6,9 +6,8 @@ from logic import run_all
 st.set_page_config(layout="wide")
 st.title("Publication Metrics Generator")
 
-df_1_file = st.file_uploader("Upload Publication Report (df_1)", type="csv")
-df_2_file = st.file_uploader("Upload Author ID Report (df_2)", type="csv")
-
+df_1_file = st.file_uploader("Upload Author ID Report (df_1)", type="csv")
+df_2_file = st.file_uploader("Upload Publication Report (df_2)", type="csv")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -18,20 +17,25 @@ with col2:
 
 if st.button("Run Analysis"):
     if not (df_1_file and df_2_file):
-        st.error("Please upload both files and provide an API key.")
+        st.error("Please upload both CSV files.")
     else:
-        df_1 = pd.read_csv(df_1_file)
-        df_2 = pd.read_csv(df_2_file)
-
         with st.spinner("Processing..."):
-            df_8, df_11 = run_all(df_1, df_2, start_date, end_date)
+            df_8_list, df_11_list = run_all(df_1_file, df_2_file, start_date, end_date)
 
-        st.success("Done!")
-        st.download_button("Download df_8 (Authorship Summary)", df_8.to_csv(index=False), "df_8.csv")
-        st.download_button("Download df_11 (Total Publications)", df_11.to_csv(index=False), "df_11.csv")
+        if not df_8_list or not df_11_list:
+            st.warning("No data returned.")
+        else:
+            # Convert to DataFrames for Streamlit display and download
+            df_8 = pd.DataFrame(df_8_list)
+            df_11 = pd.DataFrame(df_11_list)
 
-        st.subheader("Preview df_8")
-        st.dataframe(df_8)
+            st.success("Done!")
 
-        st.subheader("Preview df_11")
-        st.dataframe(df_11)
+            st.download_button("📥 Download df_8 (Authorship Summary)", df_8.to_csv(index=False), "df_8.csv")
+            st.download_button("📥 Download df_11 (Total Publications)", df_11.to_csv(index=False), "df_11.csv")
+
+            st.subheader("Preview df_8")
+            st.dataframe(df_8)
+
+            st.subheader("Preview df_11")
+            st.dataframe(df_11)

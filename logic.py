@@ -1,31 +1,38 @@
-
-import pandas as pd
-import re
+import csv
 import requests
 from datetime import datetime
 import time
 import streamlit as st
+from collections import defaultdict, Counter
+
 SCOPUS_API_KEY = st.secrets["SCOPUS_API_KEY"]
 
-def run_all(df_1, df_2, start_date, end_date):
-    import streamlit as st
-    api_key = st.secrets["SCOPUS_API_KEY"]
-    ### Step 1: Clean PMIDs
-    df_1['PubMed_clean'] = df_1['PubMed'].astype('Int64').astype('string')
-    df_1['MaxPR_PubMed_clean'] = df_1['MaxPR_PubMed'].astype(str).str.extract(r'(\\d+)', expand=False)
-    df_1['EuropePMC_clean'] = df_1['EuropePMC'].astype(str).str.extract(r'(\\d+)', expand=False)
-    df_1['PMID Final'] = df_1['PubMed_clean'].combine_first(df_1['MaxPR_PubMed_clean']).combine_first(df_1['EuropePMC_clean'])
+def parse_csv_to_dicts(file_obj):
+    file_obj.seek(0)
+    return list(csv.DictReader(file_obj))
 
-    # Extract unique Scopus IDs
-    unique_scopus_id_list = df_1['Scopus'].dropna().astype(str).unique().tolist()
+def extract_clean_pmids(author_records):
+    for row in author_records:
+        row['PubMed_clean'] = row.get('PubMed', '').strip()
+        row['MaxPR_PubMed_clean'] = row.get('MaxPR_PubMed', '').strip()
+        row['EuropePMC_clean'] = row.get('EuropePMC', '').strip()
 
-    # Query Scopus API
+        row['PMID Final'] = (
+            row['PubMed_clean'] or
+            row['MaxPR_PubMed_clean'] or
+            row['EuropePMC_clean']
+        )
+    return author_records
+
+def call_scopus_api(scopus_ids):
     headers = {
         "Accept": "application/json",
-        "X-ELS-APIKey": api_key
+        "X-ELS-APIKey": SCOPUS_API_KEY
     }
     results = []
-    for sid in unique_scopus_id_list:
+    for sid in scopus_ids:
+        if not sid:
+            continue
         url = f"https://api.elsevier.com/content/abstract/eid/{sid}"
         try:
             response = requests.get(url, headers=headers)
@@ -35,22 +42,25 @@ def run_all(df_1, df_2, start_date, end_date):
                 authors = data.get('authors', {}).get('author', [])
                 if isinstance(authors, dict):
                     authors = [authors]
-                author_names_full = [
+
+                author_full = [
                     f"{a.get('ce:given-name', '')} {a.get('ce:surname', '')}".strip()
-                    for a in authors if a.get('ce:given-name') or a.get('ce:surname')
+                    for a in authors
                 ]
-                author_names_initial = [a.get('ce:indexed-name', '').strip() for a in authors]
+                author_init = [a.get('ce:indexed-name', '').strip() for a in authors]
                 author_ids = [a.get('@auid') for a in authors]
                 author_seq = [a.get('@seq') for a in authors]
+
                 pub_date = data.get('item', {}).get('bibrecord', {}).get('head', {}).get('source', {}).get('publicationdate', {})
                 year = pub_date.get('year')
                 month = pub_date.get('month')
                 day = pub_date.get('day')
+
                 results.append({
                     "Scopus ID": sid,
                     "Title": coredata.get("dc:title"),
-                    "Authors Full": "; ".join(author_names_full),
-                    "Authors Initial": ", ".join(author_names_initial),
+                    "Authors Full": "; ".join(author_full),
+                    "Authors Initial": ", ".join(author_init),
                     "Author IDs": "; ".join(author_ids),
                     "Author Sequence": "; ".join(author_seq),
                     "Publication Year": year,
@@ -65,91 +75,80 @@ def run_all(df_1, df_2, start_date, end_date):
                     "ISSN": coredata.get("prism:issn"),
                     "PMID": coredata.get("pubmed-id"),
                     "DOI": coredata.get("prism:doi"),
-                    "Abstract": coredata.get("dc:description")
+                    "Abstract": coredata.get("dc:description"),
                 })
-        except Exception as e:
+            time.sleep(0.5)
+        except Exception:
             continue
-        time.sleep(0.5)
+    return results
 
-    df_3 = pd.DataFrame(results)
+def combine_date(year, month, day):
+    try:
+        month = '01' if not month else str(month).zfill(2)
+        day = '01' if not day else str(day).zfill(2)
+        return datetime.strptime(f"{month}/{day}/{year}", "%m/%d/%Y").date()
+    except:
+        return None
 
-    # Safely convert year/month/day to a full date
+def is_peer_reviewed(doc_subtype):
+    return doc_subtype in {"Article", "Book Chapter", "Review", "Short Survey"}
 
-    def combine_date(year, month, day):
-        try:
-            # Fill in missing or empty values with '01'
-            month = '01' if not month or pd.isna(month) else str(month).zfill(2)
-            day = '01' if not day or pd.isna(day) else str(day).zfill(2)
-            return datetime.strptime(f"{month}/{day}/{year}", "%m/%d/%Y").date()
-        except:
-            return pd.NaT  # Invalid or incomplete date
+def flag_author_position(claimed_str, author_ids_str):
+    claimed_set = set(claimed_str.split(';')) if claimed_str else set()
+    paper_list = [a.strip() for a in author_ids_str.split(';') if a.strip()]
 
-    # Apply the function to create the 'Publication Date' column
-    df_3['Publication Date'] = df_3.apply(
-        lambda row: combine_date(str(row['Publication Year']), row['Publication Month'], row['Publication Day']),
-        axis=1
-    )
+    if not paper_list:
+        return False, False, False
 
-    
-    # Combine to master dataframe
-    df_4 = df_2.merge(df_1, left_on='Username', right_on='NetID', how='left')
-    df_5 = df_4.merge(df_3, left_on='Scopus', right_on='Scopus ID', how='left')
-    df_6 = df_5.copy()
-
-    # Flag authorship roles
-    def flag_author_position(claimed_ids, paper_author_ids):
-        if pd.isna(claimed_ids) or pd.isna(paper_author_ids):
-            return pd.Series([False, False, False])
-        
-        claimed_set = set(claimed_ids.split(';'))
-        paper_list = [a.strip() for a in paper_author_ids.split(';') if a.strip()]
-        
-        if not paper_list:
-            return pd.Series([False, False, False])  # Prevent IndexError
-
-        if len(paper_list) == 1:
-            only_author = paper_list[0]
-            first = only_author in claimed_set
-            return pd.Series([first, False, False])
-        
+    if len(paper_list) == 1:
         first = paper_list[0] in claimed_set
-        last = paper_list[-1] in claimed_set
-        middle = any(a in claimed_set for a in paper_list[1:-1])
-        
-        return pd.Series([first, last, middle])
+        return first, False, False
 
-    valid_pub_mask = (
-        df_6['DOI'].notna() |
-        df_6['PMID Final'].notna() |
-        df_6['Title'].notna()
-    )
+    first = paper_list[0] in claimed_set
+    last = paper_list[-1] in claimed_set
+    middle = any(a in claimed_set for a in paper_list[1:-1])
+    return first, last, middle
 
-    df_6['Is_First_Author'] = False
-    df_6['Is_Last_Author'] = False
-    df_6['Is_Middle_Author'] = False
+def run_all(author_csv, publication_csv, start_date, end_date):
+    df_1 = extract_clean_pmids(parse_csv_to_dicts(author_csv))
+    df_2 = parse_csv_to_dicts(publication_csv)
+    scopus_ids = list({row.get("Scopus", "").strip() for row in df_1 if row.get("Scopus")})
+    df_3 = call_scopus_api(scopus_ids)
 
-    df_6.loc[valid_pub_mask, ['Is_First_Author', 'Is_Last_Author', 'Is_Middle_Author']] = df_6[valid_pub_mask].apply(
-        lambda row: flag_author_position(str(row['ClaimedScopus']), str(row['Author IDs'])), axis=1
-    )
+    # Build merged publication data
+    df_6 = []
+    for pub_row in df_2:
+        username = pub_row.get("Username")
+        author_data = next((a for a in df_1 if a.get("NetID") == username), {})
+        scopus_data = next((s for s in df_3 if s.get("Scopus ID") == pub_row.get("Scopus")), {})
 
-    df_6['Is Peer-Reviewed'] = df_6['Document SubType'].apply(lambda x: x in {'Article', 'Book Chapter', 'Review', 'Short Survey'} if pd.notna(x) else False)
+        combined = {**pub_row, **author_data, **scopus_data}
 
-    st.write("df_6 columns:", df_6.columns.tolist())
+        pub_date = combine_date(
+            scopus_data.get("Publication Year"),
+            scopus_data.get("Publication Month"),
+            scopus_data.get("Publication Day"),
+        )
+        combined["Publication Date"] = pub_date
+        combined["Is Peer-Reviewed"] = is_peer_reviewed(scopus_data.get("Document SubType"))
+        combined["Is_First_Author"], combined["Is_Last_Author"], combined["Is_Middle_Author"] = flag_author_position(
+            author_data.get("ClaimedScopus", ""), scopus_data.get("Author IDs", "")
+        )
+        df_6.append(combined)
 
+    # Filter peer-reviewed pubs in date range
+    df_7 = [
+        row for row in df_6
+        if row.get("Is Peer-Reviewed")
+        and row.get("Publication Date") is not None
+        and start_date <= row["Publication Date"] <= end_date
+    ]
 
-    #df_6['Publication Date'] = pd.to_datetime(df_6['Publication Date'], errors='coerce')
-        
-    df_7 = df_6[
-        (df_6['Is Peer-Reviewed']) &
-        (df_6['Publication Date'] >= start_date) &
-        (df_6['Publication Date'] <= end_date)
-    ].copy()
+    # Summary publication count per user
+    df_8 = Counter(row.get("Username") for row in df_7 if row.get("DOI"))
+    summary_df_8 = [{"Username": user, "Total_Pubs": count} for user, count in df_8.items()]
 
-    df_8 = df_7.groupby("Username").agg(
-        Total_Pubs=("DOI", lambda x: x.nunique())
-    ).reset_index()
-
-    # Create rank-based non-duplicated counts
+    # Rank-based assignments
     rank_order = [
         "Professor", "Research Professor", "Professor, Clinical", "Associate Professor",
         "Research Associate Professor", "Associate Professor, Clinical", "Assistant Professor",
@@ -157,20 +156,26 @@ def run_all(df_1, df_2, start_date, end_date):
         "Instructor, Clinical", "Lecturer", "Adjunct Professor", "Adjunct Associate Professor",
         "Adjunct Assistant Professor", "Adjunct Instructor", "Adjunct Lecturer", "Professor Emeritus"
     ]
-    position_rank = {title: rank for rank, title in enumerate(rank_order)}
+    position_rank = {title: i for i, title in enumerate(rank_order)}
 
-    df_9 = df_7.copy()
-    df_9["Rank"] = df_9["Position_x"].map(position_rank)
-    df_9 = df_9[df_9["Position_x"].isin(position_rank)]
-    df_10 = df_9.dropna(subset=["DOI"]).groupby("DOI").apply(
-        lambda group: pd.Series({"Assigned To": group[group["Rank"] == group["Rank"].min()].iloc[0]["Username"]})
-    ).reset_index()
+    doi_to_author = {}
+    for row in df_7:
+        if row.get("Position_x") not in position_rank or not row.get("DOI"):
+            continue
+        rank = position_rank[row["Position_x"]]
+        doi = row["DOI"]
+        if doi not in doi_to_author or rank < doi_to_author[doi]["rank"]:
+            doi_to_author[doi] = {"Username": row["Username"], "rank": rank, "details": row}
 
-    df_11 = df_10["Assigned To"].value_counts().reset_index()
-    df_11.columns = ["Username", "Total Publications"]
-    faculty_details = df_9[['Username', 'Computed Name Abbreviated', 'Position_x']].drop_duplicates()
-    df_11 = faculty_details.merge(df_11, on="Username", how="left")
-    df_11['Total Publications'] = df_11['Total Publications'].fillna(0).astype(int)
-    df_11 = df_11[['Username', 'Computed Name Abbreviated', 'Position_x', 'Total Publications']]
+    assigned_counts = Counter(v["Username"] for v in doi_to_author.values())
+    summary_df_11 = []
+    for username, count in assigned_counts.items():
+        details = next((v["details"] for v in doi_to_author.values() if v["Username"] == username), {})
+        summary_df_11.append({
+            "Username": username,
+            "Computed Name Abbreviated": details.get("Computed Name Abbreviated", ""),
+            "Position_x": details.get("Position_x", ""),
+            "Total Publications": count
+        })
 
-    return df_8, df_11
+    return summary_df_8, summary_df_11
