@@ -88,70 +88,93 @@ if uploaded_file_1 is not None and uploaded_file_2 is not None and scopus_api_ke
                         df1, df2, start_date, end_date, status_callback=update_status
                     )
                     
+                        # Store results in session state to persist downloads
+                        st.session_state.df_faculty_summary = df_faculty_summary
+                        st.session_state.df_pub_summary = df_pub_summary
+                        st.session_state.analysis_complete = True
                     if df_faculty_summary is not None and df_pub_summary is not None:
+                        # Store results in session state to persist downloads
+                        st.session_state.df_faculty_summary = df_faculty_summary
+                        st.session_state.df_pub_summary = df_pub_summary
+                        st.session_state.analysis_complete = True
+                        
                         status_container.success("✅ Analysis completed successfully!")
                         
-                        # Display results
-                        st.header("📊 Results")
-                        
-                        # Faculty Summary (df_8 equivalent)
-                        st.subheader("👥 Faculty Publication Summary")
-                        st.dataframe(df_faculty_summary, use_container_width=True)
-                        
-                        # Publication Assignment Summary (df_11 equivalent)
-                        st.subheader("📚 Publication Assignment Summary")
-                        st.dataframe(df_pub_summary, use_container_width=True)
-                        
-                        # Download buttons
-                        st.header("⬇️ Download Results")
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            faculty_csv = df_faculty_summary.to_csv(index=False)
-                            st.download_button(
-                                label="📋 Download Faculty Summary",
-                                data=faculty_csv,
-                                file_name=f"faculty_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv"
-                            )
-                        
-                        with col2:
-                            pub_csv = df_pub_summary.to_csv(index=False)
-                            st.download_button(
-                                label="📊 Download Publication Summary",
-                                data=pub_csv,
-                                file_name=f"publication_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv"
-                            )
-                        
-                        # Summary statistics
-                        st.header("📈 Summary Statistics")
-                        
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        with col1:
-                            total_faculty = len(df_faculty_summary)
-                            st.metric("Total Faculty", total_faculty)
-                        
-                        with col2:
-                            total_pubs = df_pub_summary['Total Publications'].sum()
-                            st.metric("Total Publications", total_pubs)
-                        
-                        with col3:
-                            faculty_with_pubs = (df_pub_summary['Total Publications'] > 0).sum()
-                            st.metric("Faculty with Publications", faculty_with_pubs)
-                        
-                        with col4:
-                            avg_pubs = df_pub_summary['Total Publications'].mean()
-                            st.metric("Avg Publications per Faculty", f"{avg_pubs:.1f}")
-                    
                     else:
                         st.error("❌ Analysis failed. Please check your data and try again.")
                         
                 except Exception as e:
                     st.error(f"❌ An error occurred during processing: {str(e)}")
                     st.write("Please check your API key and data files.")
+
+# Display results if analysis is complete (this will persist across reruns)
+if hasattr(st.session_state, 'analysis_complete') and st.session_state.analysis_complete:
+    df_faculty_summary = st.session_state.df_faculty_summary
+    df_pub_summary = st.session_state.df_pub_summary
+    
+    # Display results
+    st.header("📊 Results")
+    
+    # Faculty Summary (df_8 equivalent)
+    st.subheader("👥 Faculty Publication Summary")
+    st.dataframe(df_faculty_summary, use_container_width=True)
+    
+    # Publication Assignment Summary (df_11 equivalent)
+    st.subheader("📚 Publication Assignment Summary")
+    st.dataframe(df_pub_summary, use_container_width=True)
+    
+    # Download buttons - these will persist now
+    st.header("⬇️ Download Results")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        faculty_csv = df_faculty_summary.to_csv(index=False)
+        st.download_button(
+            label="📋 Download Faculty Summary",
+            data=faculty_csv,
+            file_name=f"faculty_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            key="download_faculty"  # Unique key to prevent conflicts
+        )
+    
+    with col2:
+        pub_csv = df_pub_summary.to_csv(index=False)
+        st.download_button(
+            label="📊 Download Publication Summary",
+            data=pub_csv,
+            file_name=f"publication_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            key="download_pubs"  # Unique key to prevent conflicts
+        )
+    
+    # Summary statistics
+    st.header("📈 Summary Statistics")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_faculty = len(df_faculty_summary)
+        st.metric("Total Faculty", total_faculty)
+    
+    with col2:
+        total_pubs = df_pub_summary['Total Publications'].sum()
+        st.metric("Total Publications", total_pubs)
+    
+    with col3:
+        faculty_with_pubs = (df_pub_summary['Total Publications'] > 0).sum()
+        st.metric("Faculty with Publications", faculty_with_pubs)
+    
+    with col4:
+        avg_pubs = df_pub_summary['Total Publications'].mean()
+        st.metric("Avg Publications per Faculty", f"{avg_pubs:.1f}")
+    
+    # Clear results button
+    if st.button("🔄 Clear Results and Start Over", key="clear_results"):
+        for key in ['df_faculty_summary', 'df_pub_summary', 'analysis_complete']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
     
     except Exception as e:
         st.error(f"❌ Error loading files: {str(e)}")

@@ -134,6 +134,7 @@ class PublicationAnalyzer:
         if pd.isna(claimed_ids) or pd.isna(paper_author_ids):
             return pd.Series([False, False, False])
         
+        # Debug: print the IDs being compared
         # Handle multiple claimed IDs separated by semicolons
         claimed_list = [id.strip() for id in str(claimed_ids).split(';') if id.strip()]
         claimed_set = set(claimed_list)
@@ -144,15 +145,26 @@ class PublicationAnalyzer:
         if not paper_list or not claimed_set:
             return pd.Series([False, False, False])
         
+        # Debug output (will be printed to console in Streamlit)
+        if len(claimed_set) > 0 and len(paper_list) > 0:
+            print(f"DEBUG: Claimed IDs: {claimed_set}")
+            print(f"DEBUG: Paper author IDs: {paper_list}")
+            print(f"DEBUG: Intersection: {claimed_set.intersection(set(paper_list))}")
+        
         # Single author case
         if len(paper_list) == 1:
             first = paper_list[0] in claimed_set
+            if first:
+                print(f"DEBUG: MATCH FOUND - Single author: {paper_list[0]} in {claimed_set}")
             return pd.Series([first, False, False])
         
         # Multiple authors case
         first = paper_list[0] in claimed_set
         last = paper_list[-1] in claimed_set
         middle = any(a in claimed_set for a in paper_list[1:-1]) if len(paper_list) > 2 else False
+        
+        if first or last or middle:
+            print(f"DEBUG: MATCH FOUND - First: {first}, Last: {last}, Middle: {middle}")
         
         return pd.Series([first, last, middle])
     
@@ -281,6 +293,13 @@ class PublicationAnalyzer:
         update_status("📋 Generating faculty summary...")
         faculty_info = df_merged[['Computed Name Abbreviated', 'Username', 'Position_x', 'Arrive Date', 'Leave Date']].drop_duplicates()
         
+        # Debug: Check the filtered data
+        print(f"DEBUG: Total filtered publications: {len(df_filtered)}")
+        print(f"DEBUG: Sample of filtered data authorship flags:")
+        if len(df_filtered) > 0:
+            sample = df_filtered[['Username', 'Is_First_Author', 'Is_Last_Author', 'Is_Middle_Author', 'PMID Final']].head(10)
+            print(sample.to_string())
+        
         # Create coauthorship mapping
         scopus_to_netids = df_filtered.groupby('Scopus ID')['Username'].apply(set)
         netid_to_scopus_ids = df_filtered.groupby('Username')['Scopus ID'].apply(set).to_dict()
@@ -289,6 +308,14 @@ class PublicationAnalyzer:
         for _, row in faculty_info.iterrows():
             netid = row['Username']
             person_summary = row.to_dict()
+            
+            # Debug: Check what we're finding for this person
+            person_pubs = df_filtered[df_filtered['Username'] == netid]
+            if len(person_pubs) > 0:
+                print(f"DEBUG: {netid} has {len(person_pubs)} publications in filtered data")
+                print(f"DEBUG: First author flags: {person_pubs['Is_First_Author'].sum()}")
+                print(f"DEBUG: Last author flags: {person_pubs['Is_Last_Author'].sum()}")
+                print(f"DEBUG: Middle author flags: {person_pubs['Is_Middle_Author'].sum()}")
             
             person_summary.update(self.summarize_pmids(df_filtered, netid, 'Is_First_Author'))
             person_summary.update(self.summarize_pmids(df_filtered, netid, 'Is_Last_Author'))
