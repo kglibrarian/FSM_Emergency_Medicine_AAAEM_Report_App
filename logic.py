@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 
 def parse_csv_to_dicts(file_obj):
-    return list(csv.DictReader(io.TextIOWrapper(file_obj, encoding="utf-8")))
+    return list(csv.DictReader(file_obj))
 
 def extract_clean_pmids(author_rows):
     for row in author_rows:
