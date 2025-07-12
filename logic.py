@@ -18,9 +18,6 @@ class PublicationAnalyzer:
         
     def consolidate_pmids(self, df):
         """Consolidate PMIDs from multiple columns"""
-        print(f"DEBUG: Input df shape: {df.shape}")
-        print(f"DEBUG: Input columns: {list(df.columns)}")
-        
         # Clean and normalize columns
         df['PubMed_clean'] = df['PubMed'].astype('Int64').astype('string')
         df['MaxPR_PubMed_clean'] = df['MaxPR_PubMed'].str.extract(r'(\d+)', expand=False)
@@ -31,14 +28,10 @@ class PublicationAnalyzer:
                            .combine_first(df['MaxPR_PubMed_clean'])
                            .combine_first(df['EuropePMC_clean']))
         
-        print(f"DEBUG: PMIDs consolidated - non-null PMID Final: {df['PMID Final'].notna().sum()}")
         return df
     
     def query_scopus_api(self, scopus_ids, progress_callback=None):
         """Query Scopus API for publication metadata"""
-        print(f"DEBUG: Starting API queries for {len(scopus_ids)} Scopus IDs")
-        print(f"DEBUG: Sample Scopus IDs: {scopus_ids[:5]}")
-        
         results = []
         
         def chunk_list(lst, size):
@@ -89,7 +82,7 @@ class PublicationAnalyzer:
                             month = pub_date.get('month')
                             day = pub_date.get('day')
                             
-                            result = {
+                            results.append({
                                 "Scopus ID": sid,
                                 "Title": coredata.get("dc:title"),
                                 "Authors Full": "; ".join(author_names_full),
@@ -109,19 +102,7 @@ class PublicationAnalyzer:
                                 "PMID": coredata.get("pubmed-id"),
                                 "DOI": coredata.get("prism:doi"),
                                 "Abstract": coredata.get("dc:description")
-                            }
-                            
-                            results.append(result)
-                            
-                            # Debug the first few results
-                            if len(results) <= 3:
-                                print(f"DEBUG: Sample API result {len(results)}:")
-                                print(f"  Scopus ID: {result['Scopus ID']}")
-                                print(f"  Title: {result['Title']}")
-                                print(f"  Author IDs: {result['Author IDs']}")
-                                print(f"  Document SubType: {result['Document SubType']}")
-                                print(f"  Year: {result['Publication Year']}")
-                            
+                            })
                             break
                             
                         elif response.status_code == 429:
@@ -137,7 +118,6 @@ class PublicationAnalyzer:
                 
                 time.sleep(self.rate_limit_delay)
         
-        print(f"DEBUG: API queries complete - got {len(results)} results")
         return pd.DataFrame(results)
     
     def combine_date_parts(self, year, month, day):
@@ -154,6 +134,7 @@ class PublicationAnalyzer:
         if pd.isna(claimed_ids) or pd.isna(paper_author_ids):
             return pd.Series([False, False, False])
         
+        # Debug: print the IDs being compared
         # Handle multiple claimed IDs separated by semicolons
         claimed_list = [id.strip() for id in str(claimed_ids).split(';') if id.strip()]
         claimed_set = set(claimed_list)
@@ -164,24 +145,26 @@ class PublicationAnalyzer:
         if not paper_list or not claimed_set:
             return pd.Series([False, False, False])
         
-        # Debug output for first few matches
+        # Debug output (will be printed to console in Streamlit)
         if len(claimed_set) > 0 and len(paper_list) > 0:
-            intersection = claimed_set.intersection(set(paper_list))
-            if intersection:
-                print(f"DEBUG: MATCH FOUND!")
-                print(f"  Claimed IDs: {claimed_set}")
-                print(f"  Paper author IDs: {paper_list}")
-                print(f"  Intersection: {intersection}")
+            print(f"DEBUG: Claimed IDs: {claimed_set}")
+            print(f"DEBUG: Paper author IDs: {paper_list}")
+            print(f"DEBUG: Intersection: {claimed_set.intersection(set(paper_list))}")
         
         # Single author case
         if len(paper_list) == 1:
             first = paper_list[0] in claimed_set
+            if first:
+                print(f"DEBUG: MATCH FOUND - Single author: {paper_list[0]} in {claimed_set}")
             return pd.Series([first, False, False])
         
         # Multiple authors case
         first = paper_list[0] in claimed_set
         last = paper_list[-1] in claimed_set
         middle = any(a in claimed_set for a in paper_list[1:-1]) if len(paper_list) > 2 else False
+        
+        if first or last or middle:
+            print(f"DEBUG: MATCH FOUND - First: {first}, Last: {last}, Middle: {middle}")
         
         return pd.Series([first, last, middle])
     
@@ -229,7 +212,7 @@ class PublicationAnalyzer:
         })
     
     def process_data(self, df1, df2, start_date, end_date, status_callback=None):
-        """Main processing pipeline with extensive debugging"""
+        """Main processing pipeline"""
         
         def update_status(message):
             if status_callback:
@@ -264,20 +247,10 @@ class PublicationAnalyzer:
             ), axis=1
         )
         
-        print(f"DEBUG: Scopus data shape after date processing: {df_scopus.shape}")
-        print(f"DEBUG: Sample publication dates: {df_scopus['Publication Date'].dropna().head().tolist()}")
-        
         # Step 4: Merge datasets
         update_status("🔗 Merging datasets...")
-        print(f"DEBUG: df1 shape: {df1.shape}, df2 shape: {df2.shape}")
-        print(f"DEBUG: df1 merge columns: Username={df1['NetID'].nunique()}, df2 merge columns: NetID={df2['Username'].nunique()}")
-        
         df_merged = df2.merge(df1, left_on='Username', right_on='NetID', how='left')
-        print(f"DEBUG: After first merge: {df_merged.shape}")
-        
         df_merged = df_merged.merge(df_scopus, left_on='Scopus', right_on='Scopus ID', how='left')
-        print(f"DEBUG: After second merge: {df_merged.shape}")
-        print(f"DEBUG: Non-null Scopus matches: {df_merged['Scopus ID'].notna().sum()}")
         
         # Step 5: Flag author positions
         update_status("👥 Flagging author positions...")
@@ -287,32 +260,12 @@ class PublicationAnalyzer:
             df_merged['Title'].notna()
         )
         
-        print(f"DEBUG: Valid publications mask: {valid_pub_mask.sum()} out of {len(df_merged)}")
-        
         # Initialize all flags to False
         df_merged['Is_First_Author'] = False
         df_merged['Is_Last_Author'] = False
         df_merged['Is_Middle_Author'] = False
         
-        # Sample a few rows for detailed debugging
-        sample_rows = df_merged[valid_pub_mask].head(5)
-        for idx, row in sample_rows.iterrows():
-            print(f"\nDEBUG: Processing row {idx}")
-            print(f"  Username: {row['Username']}")
-            print(f"  ClaimedScopus: {row['ClaimedScopus']}")
-            print(f"  Author IDs: {row['Author IDs']}")
-            
-            first, last, middle = self.flag_author_position(
-                row['ClaimedScopus'], 
-                row['Author IDs']
-            )
-            df_merged.at[idx, 'Is_First_Author'] = first
-            df_merged.at[idx, 'Is_Last_Author'] = last
-            df_merged.at[idx, 'Is_Middle_Author'] = middle
-            
-            print(f"  Flags: First={first}, Last={last}, Middle={middle}")
-        
-        # Apply to all valid publications
+        # Apply author position flagging only to valid publications
         for idx, row in df_merged[valid_pub_mask].iterrows():
             first, last, middle = self.flag_author_position(
                 row['ClaimedScopus'], 
@@ -326,48 +279,30 @@ class PublicationAnalyzer:
         update_status("📖 Flagging peer-reviewed publications...")
         df_merged['Is Peer-Reviewed'] = df_merged['Document SubType'].apply(self.flag_peer_reviewed)
         
-        print(f"DEBUG: Peer-reviewed publications: {df_merged['Is Peer-Reviewed'].sum()}")
-        print(f"DEBUG: Document subtypes found: {df_merged['Document SubType'].value_counts()}")
-        
         # Step 7: Filter by date range and peer-review status
         update_status("📊 Filtering publications by date range...")
         df_merged['Publication Date'] = pd.to_datetime(df_merged['Publication Date'], errors='coerce')
         
-        print(f"DEBUG: Date range filter: {start_date} to {end_date}")
-        print(f"DEBUG: Publications with valid dates: {df_merged['Publication Date'].notna().sum()}")
-        
-        date_mask = (
+        df_filtered = df_merged[
+            (df_merged['Is Peer-Reviewed']) &
             (df_merged['Publication Date'] >= pd.Timestamp(start_date)) &
             (df_merged['Publication Date'] <= pd.Timestamp(end_date))
-        )
-        print(f"DEBUG: Publications in date range: {date_mask.sum()}")
-        
-        peer_reviewed_mask = df_merged['Is Peer-Reviewed']
-        print(f"DEBUG: Peer-reviewed publications: {peer_reviewed_mask.sum()}")
-        
-        df_filtered = df_merged[
-            peer_reviewed_mask & date_mask
         ].copy()
-        
-        print(f"DEBUG: Final filtered dataset: {df_filtered.shape}")
-        print(f"DEBUG: Authorship flags in filtered data:")
-        print(f"  First author: {df_filtered['Is_First_Author'].sum()}")
-        print(f"  Last author: {df_filtered['Is_Last_Author'].sum()}")
-        print(f"  Middle author: {df_filtered['Is_Middle_Author'].sum()}")
         
         # Step 8: Generate faculty summary (df_8 equivalent)
         update_status("📋 Generating faculty summary...")
         faculty_info = df_merged[['Computed Name Abbreviated', 'Username', 'Position_x', 'Arrive Date', 'Leave Date']].drop_duplicates()
         
-        print(f"DEBUG: Faculty count: {len(faculty_info)}")
+        # Debug: Check the filtered data
+        print(f"DEBUG: Total filtered publications: {len(df_filtered)}")
+        print(f"DEBUG: Sample of filtered data authorship flags:")
+        if len(df_filtered) > 0:
+            sample = df_filtered[['Username', 'Is_First_Author', 'Is_Last_Author', 'Is_Middle_Author', 'PMID Final']].head(10)
+            print(sample.to_string())
         
         # Create coauthorship mapping
-        if len(df_filtered) > 0:
-            scopus_to_netids = df_filtered.groupby('Scopus ID')['Username'].apply(set)
-            netid_to_scopus_ids = df_filtered.groupby('Username')['Scopus ID'].apply(set).to_dict()
-        else:
-            scopus_to_netids = {}
-            netid_to_scopus_ids = {}
+        scopus_to_netids = df_filtered.groupby('Scopus ID')['Username'].apply(set)
+        netid_to_scopus_ids = df_filtered.groupby('Username')['Scopus ID'].apply(set).to_dict()
         
         summary_rows = []
         for _, row in faculty_info.iterrows():
@@ -378,6 +313,9 @@ class PublicationAnalyzer:
             person_pubs = df_filtered[df_filtered['Username'] == netid]
             if len(person_pubs) > 0:
                 print(f"DEBUG: {netid} has {len(person_pubs)} publications in filtered data")
+                print(f"DEBUG: First author flags: {person_pubs['Is_First_Author'].sum()}")
+                print(f"DEBUG: Last author flags: {person_pubs['Is_Last_Author'].sum()}")
+                print(f"DEBUG: Middle author flags: {person_pubs['Is_Middle_Author'].sum()}")
             
             person_summary.update(self.summarize_pmids(df_filtered, netid, 'Is_First_Author'))
             person_summary.update(self.summarize_pmids(df_filtered, netid, 'Is_Last_Author'))
@@ -415,11 +353,6 @@ class PublicationAnalyzer:
         
         df_faculty_summary = df_faculty_summary.rename(columns=column_renames)
         
-        # Final debug output
-        any_position_counts = df_faculty_summary['Number of PubMed indexed publications during the past AY (authorship in any position)']
-        print(f"DEBUG: Faculty with any position publications: {(any_position_counts > 0).sum()}")
-        print(f"DEBUG: Total any position publications: {any_position_counts.sum()}")
-        
         # Step 9: Generate publication assignment summary (df_11 equivalent)
         update_status("🎯 Generating publication assignments...")
         
@@ -441,8 +374,6 @@ class PublicationAnalyzer:
         df_assign = df_assign.dropna(subset=["DOI"])
         df_assign = df_assign[df_assign["Position_x"].isin(position_rank)]
         
-        print(f"DEBUG: Publications for assignment: {len(df_assign)}")
-        
         # Group by DOI and assign to highest-ranked person
         def assign_publication(group):
             min_rank = group["Rank"].min()
@@ -462,8 +393,6 @@ class PublicationAnalyzer:
         df_pub_summary = faculty_details.merge(df_pub_counts, on="Username", how="left")
         df_pub_summary['Total Publications'] = df_pub_summary['Total Publications'].fillna(0).astype(int)
         df_pub_summary = df_pub_summary[['Username', 'Computed Name Abbreviated', 'Position_x', 'Total Publications']]
-        
-        print(f"DEBUG: Final publication assignment - faculty with pubs: {(df_pub_summary['Total Publications'] > 0).sum()}")
         
         update_status("✅ Processing completed successfully!")
         
